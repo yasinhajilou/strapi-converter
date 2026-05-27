@@ -1,0 +1,728 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Google Docs / HTML → Strapi Paste Helper</title>
+  <script src="https://unpkg.com/turndown@7.2.0/dist/turndown.js"></script>
+  <script src="https://unpkg.com/turndown-plugin-gfm@1.0.2/dist/turndown-plugin-gfm.js"></script>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 24px;
+      background: #f6f7f9;
+      color: #1d1d1f;
+      line-height: 1.5;
+    }
+    h1 { margin: 0 0 4px; font-size: 22px; }
+    .subtitle { color: #6b7280; margin: 0 0 20px; font-size: 14px; }
+
+    .mode-tabs {
+      display: flex;
+      gap: 4px;
+      margin-bottom: 12px;
+      border-bottom: 1px solid #e5e7eb;
+    }
+    .mode-tab {
+      padding: 8px 14px;
+      background: none;
+      border: none;
+      border-bottom: 2px solid transparent;
+      color: #6b7280;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 500;
+    }
+    .mode-tab.active {
+      color: #1d57de;
+      border-bottom-color: #1d57de;
+    }
+    .mode-tab:hover { color: #1d57de; }
+
+    .controls {
+      display: flex;
+      gap: 16px;
+      align-items: center;
+      background: #fff;
+      border: 1px solid #e5e7eb;
+      border-radius: 6px;
+      padding: 10px 14px;
+      margin-bottom: 12px;
+      font-size: 13px;
+    }
+    .controls.hidden { display: none; }
+    .controls label {
+      color: #4b5563;
+      font-weight: 500;
+    }
+    .controls select {
+      padding: 4px 8px;
+      border: 1px solid #d1d5db;
+      border-radius: 4px;
+      font-size: 13px;
+      background: #fff;
+      cursor: pointer;
+    }
+    .help {
+      color: #6b7280;
+      font-size: 12px;
+      margin-left: auto;
+    }
+
+    .panes {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+    .pane {
+      background: #fff;
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      min-height: 420px;
+    }
+    .pane-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+    .pane-label { font-weight: 600; font-size: 14px; }
+    .step-num {
+      background: #1d57de;
+      color: #fff;
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      margin-right: 6px;
+    }
+
+    .input-area {
+      flex: 1;
+      border: 1px dashed #d1d5db;
+      border-radius: 6px;
+      padding: 12px;
+      min-height: 300px;
+      outline: none;
+      background: #fff;
+      display: none;
+    }
+    .input-area.active { display: block; }
+    .input-area:focus { border-color: #1d57de; border-style: solid; }
+
+    #paste-area { overflow-y: auto; }
+    #paste-area:empty::before {
+      content: "Paste your Google Docs content here (Cmd+V / Ctrl+V)...";
+      color: #9ca3af;
+    }
+    #html-input {
+      width: 100%;
+      font-family: ui-monospace, "SF Mono", Menlo, monospace;
+      font-size: 12px;
+      resize: none;
+      border: none;
+      outline: none;
+    }
+
+    .output-tabs {
+      display: flex;
+      gap: 4px;
+      margin-bottom: 8px;
+    }
+    .output-tab {
+      padding: 4px 10px;
+      background: #f3f4f6;
+      border: 1px solid #e5e7eb;
+      border-radius: 4px;
+      color: #6b7280;
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 500;
+    }
+    .output-tab.active {
+      background: #1d57de;
+      color: #fff;
+      border-color: #1d57de;
+    }
+
+    .output-area {
+      flex: 1;
+      width: 100%;
+      border: 1px solid #e5e7eb;
+      border-radius: 6px;
+      padding: 12px;
+      font-family: ui-monospace, "SF Mono", Menlo, monospace;
+      font-size: 12px;
+      min-height: 280px;
+      resize: none;
+      background: #fafafa;
+      display: none;
+    }
+    .output-area.active { display: block; }
+
+    button.primary {
+      background: #1d57de;
+      color: #fff;
+      border: none;
+      padding: 8px 14px;
+      border-radius: 6px;
+      font-size: 13px;
+      cursor: pointer;
+      font-weight: 500;
+    }
+    button.primary:hover { background: #1540a2; }
+    button.secondary {
+      background: #fff;
+      color: #1d57de;
+      border: 1px solid #1d57de;
+      padding: 8px 14px;
+      border-radius: 6px;
+      font-size: 13px;
+      cursor: pointer;
+      font-weight: 500;
+    }
+    button.secondary:hover { background: #f0f4ff; }
+
+    .alert {
+      border-radius: 6px;
+      padding: 10px 12px;
+      margin-top: 12px;
+      font-size: 12px;
+    }
+    .alert.hidden { display: none; }
+    .alert strong { display: block; margin-bottom: 4px; }
+    .alert ul { margin: 4px 0 0; padding-left: 18px; }
+    .alert li { font-size: 11px; word-break: break-word; }
+
+    .alert.warning {
+      background: #fef3c7;
+      border: 1px solid #fbbf24;
+      color: #78350f;
+    }
+    .alert.info {
+      background: #dbeafe;
+      border: 1px solid #93c5fd;
+      color: #1e3a8a;
+    }
+
+    .toast {
+      position: fixed;
+      bottom: 24px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: #1d57de;
+      color: #fff;
+      padding: 10px 20px;
+      border-radius: 6px;
+      font-size: 14px;
+      opacity: 0;
+      transition: opacity 0.2s;
+      pointer-events: none;
+    }
+    .toast.show { opacity: 1; }
+
+    .footer {
+      margin-top: 16px;
+      font-size: 12px;
+      color: #6b7280;
+      text-align: center;
+    }
+    .stats {
+      display: flex;
+      gap: 14px;
+      font-size: 11px;
+      color: #6b7280;
+      margin-top: 8px;
+    }
+    .stats strong { color: #1d1d1f; }
+
+    .preview-pane blockquote {
+      border-left: 3px solid #93c5fd;
+      padding: 4px 12px;
+      margin: 0;
+      color: #1f2937;
+    }
+    .preview-pane table {
+      border-collapse: collapse;
+      width: 100%;
+    }
+    .preview-pane th, .preview-pane td {
+      border: 1px solid #d1d5db;
+      padding: 6px 10px;
+      text-align: left;
+    }
+    .preview-pane th { background: #f3f4f6; }
+    .preview-pane hr {
+      border: none;
+      border-top: 1px solid #d1d5db;
+      margin: 8px 0;
+    }
+  </style>
+</head>
+<body>
+  <h1>Google Docs / HTML → Strapi paste helper</h1>
+  <p class="subtitle">
+    Convert formatted content to Strapi-friendly Markdown.
+    Styled HTML callouts get converted to the closest Markdown equivalent.
+  </p>
+
+  <!-- INPUT MODE TABS -->
+  <div class="mode-tabs">
+    <button class="mode-tab active" data-mode="paste" onclick="switchMode('paste')">Paste from Google Docs</button>
+    <button class="mode-tab" data-mode="html" onclick="switchMode('html')">Paste HTML source</button>
+  </div>
+
+  <!-- CALLOUT STYLE PICKER — hidden on Google Docs tab, shown on HTML tab -->
+  <div id="controls" class="controls hidden">
+    <label for="callout-style">Styled HTML blocks become:</label>
+    <select id="callout-style" onchange="triggerConvert()">
+      <option value="auto">Auto (smart pick per block)</option>
+      <option value="blockquote">Blockquote (vertical bar callout)</option>
+      <option value="table">Table (best for label: value lists)</option>
+      <option value="hr">Horizontal rules above/below</option>
+      <option value="none">None (just plain content)</option>
+    </select>
+    <span class="help">Only applies when input contains a styled wrapper (background, border, etc.)</span>
+  </div>
+
+  <div class="panes">
+    <!-- LEFT: Input -->
+    <div class="pane">
+      <div class="pane-header">
+        <div class="pane-label">
+          <span class="step-num">1</span><span id="input-label">Paste from Google Docs</span>
+        </div>
+        <button class="secondary" onclick="clearAll()">Clear</button>
+      </div>
+
+      <div id="paste-area" class="input-area active" contenteditable="true"></div>
+      <textarea id="html-input" class="input-area" placeholder="<div>Paste your HTML source code here...</div>"></textarea>
+
+      <div class="stats">
+        <span>Words: <strong id="word-count">0</strong></span>
+        <span>Images: <strong id="image-count">0</strong></span>
+        <span>Tables: <strong id="table-count">0</strong></span>
+        <span>Callouts: <strong id="callout-count">0</strong></span>
+      </div>
+    </div>
+
+    <!-- RIGHT: Output -->
+    <div class="pane">
+      <div class="pane-header">
+        <div class="pane-label">
+          <span class="step-num">2</span>Copy into Strapi
+        </div>
+        <button class="primary" onclick="copyOutput()">Copy</button>
+      </div>
+
+      <div class="output-tabs">
+        <button class="output-tab active" data-output="markdown" onclick="switchOutput('markdown')">Markdown</button>
+        <button class="output-tab" data-output="preview" onclick="switchOutput('preview')">Preview</button>
+      </div>
+
+      <textarea id="markdown-output" class="output-area active" readonly placeholder="Markdown will appear here..."></textarea>
+      <div id="preview-output" class="output-area preview-pane" style="font-family: inherit; font-size: 14px; overflow-y: auto;"></div>
+
+      <div id="dropped-alert" class="alert info hidden">
+        <strong>ℹ Styling that couldn't be preserved</strong>
+        <span>Markdown can't carry these visual properties. They were dropped:</span>
+        <ul id="dropped-list"></ul>
+      </div>
+
+      <div id="image-alert" class="alert warning hidden">
+        <strong>⚠ Images found — upload manually</strong>
+        <span>Re-upload these via Strapi's media library:</span>
+        <ul id="image-list"></ul>
+      </div>
+    </div>
+  </div>
+
+  <div class="footer">
+    Tip: switch to the HTML source tab and try different callout styles to see which best matches your intent.
+  </div>
+
+  <div class="toast" id="toast">Copied!</div>
+
+  <script>
+    // ===== Turndown setup =====
+    const turndownService = new TurndownService({
+      headingStyle: 'atx',
+      bulletListMarker: '-',
+      codeBlockStyle: 'fenced',
+      emDelimiter: '_',
+      strongDelimiter: '**',
+      linkStyle: 'inlined'
+    });
+    turndownService.use(turndownPluginGfm.gfm);
+
+    // Google Docs quirks
+    turndownService.addRule('googleDocsFakeBold', {
+      filter: (n) => n.nodeName === 'B' &&
+                     (n.getAttribute('style') || '').includes('font-weight:normal'),
+      replacement: (content) => content
+    });
+    turndownService.addRule('googleDocsRealBold', {
+      filter: (n) => {
+        if (n.nodeName !== 'SPAN') return false;
+        const s = n.getAttribute('style') || '';
+        return /font-weight:\s*(700|bold)/i.test(s);
+      },
+      replacement: (content) => '**' + content + '**'
+    });
+    turndownService.addRule('googleDocsItalic', {
+      filter: (n) => {
+        if (n.nodeName !== 'SPAN') return false;
+        const s = n.getAttribute('style') || '';
+        return /font-style:\s*italic/i.test(s);
+      },
+      replacement: (content) => '_' + content + '_'
+    });
+
+    // ===== Callout detection =====
+    function isStyledCallout(el) {
+      if (!el || el.nodeType !== Node.ELEMENT_NODE) return false;
+      const tag = el.nodeName;
+      if (!['DIV', 'SECTION', 'ASIDE', 'BLOCKQUOTE'].includes(tag)) return false;
+      const style = (el.getAttribute('style') || '').toLowerCase();
+      const hasBackground = /background(?:-color)?:\s*[^;]+/.test(style) &&
+                            !/background(?:-color)?:\s*(transparent|none|inherit|initial)/.test(style);
+      const hasBorder = /border(?!-radius)/.test(style) &&
+                        !/border:\s*(none|0|inherit)/.test(style);
+      const hasBigPadding = /padding:\s*\d{2,}/.test(style);
+      const hasBigRadius = /border-radius:\s*\d/.test(style);
+      const score = [hasBackground, hasBorder, hasBigPadding, hasBigRadius].filter(Boolean).length;
+      return score >= 2;
+    }
+
+    function extractStyleDrops(el) {
+      const drops = [];
+      const style = (el.getAttribute('style') || '').toLowerCase();
+      const bg = style.match(/background(?:-color)?:\s*([^;]+)/);
+      if (bg && !/transparent|none/.test(bg[1])) drops.push('background: ' + bg[1].trim());
+      const border = style.match(/border(?!-radius):\s*([^;]+)/);
+      if (border && !/none|0/.test(border[1])) drops.push('border: ' + border[1].trim());
+      const radius = style.match(/border-radius:\s*([^;]+)/);
+      if (radius) drops.push('border-radius: ' + radius[1].trim());
+      const color = style.match(/(?:^|;)\s*color:\s*([^;]+)/);
+      if (color) drops.push('text color: ' + color[1].trim());
+      const padding = style.match(/padding:\s*([^;]+)/);
+      if (padding) drops.push('padding: ' + padding[1].trim());
+      return drops;
+    }
+
+    function detectLabelValuePattern(el) {
+      const clone = el.cloneNode(true);
+      clone.querySelectorAll('h1, h2, h3, h4, h5, h6').forEach(h => h.remove());
+      const html = clone.innerHTML;
+      const matches = [...html.matchAll(/<(?:b|strong)[^>]*>([^<]+?:)<\/(?:b|strong)>([^<]*(?:<span[^>]*>[^<]*<\/span>)?[^<]*)/gi)];
+      if (matches.length < 2) return null;
+      return matches.map(m => {
+        const label = m[1].replace(/:$/, '').trim();
+        const valueRaw = m[2].replace(/<[^>]+>/g, '').trim();
+        return { label, value: valueRaw };
+      }).filter(p => p.label && p.value);
+    }
+
+    function getCalloutHeading(el) {
+      const h = el.querySelector('h1, h2, h3, h4, h5, h6');
+      return h ? h.textContent.trim() : null;
+    }
+
+    let droppedStyles = [];
+    let calloutCount = 0;
+
+    function transformCallout(el, style) {
+      droppedStyles.push(...extractStyleDrops(el));
+      calloutCount++;
+
+      const heading = getCalloutHeading(el);
+      const labelValues = detectLabelValuePattern(el);
+
+      if (style === 'auto') {
+        style = labelValues ? 'table' : 'blockquote';
+      }
+
+      if (style === 'none') {
+        return el.innerHTML;
+      }
+
+      if (style === 'table' && labelValues) {
+        let md = '\n\n';
+        if (heading) md += '### ' + heading + '\n\n';
+        md += '| | |\n|---|---|\n';
+        labelValues.forEach(({ label, value }) => {
+          md += `| **${label}** | ${value} |\n`;
+        });
+        md += '\n';
+        return md;
+      }
+
+      if (style === 'table') {
+        style = 'blockquote';
+      }
+
+      if (style === 'blockquote') {
+        let inner;
+        if (labelValues) {
+          inner = labelValues.map(({ label, value }) => `**${label}:** ${value}`).join('  \n');
+          if (heading) inner = `### ${heading}\n\n${inner}`;
+        } else {
+          inner = el.innerText || el.textContent || '';
+          inner = inner.split(/\n+/).filter(l => l.trim()).join('  \n');
+        }
+        return '\n\n' + inner.split('\n').map(l => '> ' + l).join('\n') + '\n\n';
+      }
+
+      if (style === 'hr') {
+        let inner;
+        if (labelValues) {
+          inner = labelValues.map(({ label, value }) => `**${label}:** ${value}`).join('  \n');
+          if (heading) inner = `### ${heading}\n\n${inner}`;
+        } else {
+          inner = el.innerText || el.textContent || '';
+          inner = inner.split(/\n+/).filter(l => l.trim()).join('  \n');
+        }
+        return '\n\n---\n\n' + inner + '\n\n---\n\n';
+      }
+
+      return el.innerHTML;
+    }
+
+    // ===== Pre-process and convert =====
+    function preprocessAndConvert(html, calloutStyle) {
+      droppedStyles = [];
+      calloutCount = 0;
+      const doc = new DOMParser().parseFromString(html, 'text/html');
+
+      const callouts = [];
+      function findCallouts(parent) {
+        Array.from(parent.children).forEach(child => {
+          if (isStyledCallout(child)) {
+            callouts.push(child);
+          } else {
+            findCallouts(child);
+          }
+        });
+      }
+      findCallouts(doc.body);
+
+      const calloutMarkdowns = [];
+      callouts.forEach((el, i) => {
+        const md = transformCallout(el, calloutStyle);
+        calloutMarkdowns.push(md);
+        const placeholder = doc.createElement('p');
+        placeholder.textContent = `XXXCALLOUTXXX${i}XXXENDXXX`;
+        el.parentNode.replaceChild(placeholder, el);
+      });
+
+      doc.querySelectorAll('div, p, span').forEach(parent => {
+        const bolds = Array.from(parent.children).filter(
+          c => c.nodeName === 'B' || c.nodeName === 'STRONG'
+        );
+        if (bolds.length >= 2) {
+          bolds.slice(1).forEach(b => {
+            const br = doc.createElement('br');
+            parent.insertBefore(br, b);
+          });
+        }
+      });
+
+      let markdown = turndownService.turndown(doc.body.innerHTML);
+
+      calloutMarkdowns.forEach((md, i) => {
+        const placeholder = `XXXCALLOUTXXX${i}XXXENDXXX`;
+        markdown = markdown.replace(placeholder, md);
+      });
+
+      markdown = markdown.replace(/\n{3,}/g, '\n\n').trim();
+      return markdown;
+    }
+
+    // ===== Markdown → HTML for preview =====
+    function markdownToHtmlPreview(md) {
+      let html = md;
+      html = html.replace(/((?:^\|.*\|$\n?)+)/gm, (match) => {
+        const rows = match.trim().split('\n');
+        if (rows.length < 2) return match;
+        const hasHeader = rows[1] && /^\|[\s\-:|]+\|$/.test(rows[1]);
+        const dataRows = hasHeader ? rows.slice(2) : rows;
+        const headerRows = hasHeader ? [rows[0]] : [];
+        let tableHtml = '<table>';
+        headerRows.forEach(r => {
+          const cells = r.split('|').slice(1, -1).map(c => c.trim());
+          tableHtml += '<tr>' + cells.map(c => `<th>${inlineMd(c)}</th>`).join('') + '</tr>';
+        });
+        dataRows.forEach(r => {
+          const cells = r.split('|').slice(1, -1).map(c => c.trim());
+          tableHtml += '<tr>' + cells.map(c => `<td>${inlineMd(c)}</td>`).join('') + '</tr>';
+        });
+        tableHtml += '</table>';
+        return tableHtml;
+      });
+      html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
+      html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>');
+      html = html.replace(/^# (.+)$/gm, '<h1>$1</h1>');
+      html = html.replace(/^---$/gm, '<hr>');
+      html = html.replace(/((?:^> .*\n?)+)/gm, (m) => {
+        const content = m.split('\n').map(l => l.replace(/^> /, '')).join('<br>');
+        return '<blockquote>' + inlineMd(content) + '</blockquote>';
+      });
+      html = html.split('\n\n').map(para => {
+        if (/^<(h\d|table|blockquote|hr|ul|ol)/.test(para.trim())) return para;
+        if (!para.trim()) return '';
+        return '<p>' + inlineMd(para).replace(/  \n/g, '<br>').replace(/\n/g, ' ') + '</p>';
+      }).join('\n');
+      return html;
+    }
+    function inlineMd(s) {
+      return s
+        .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+        .replace(/_(.+?)_/g, '<em>$1</em>')
+        .replace(/\[(.+?)\]\((.+?)\)/g, '<a href="$2">$1</a>');
+    }
+
+    // ===== Main convert =====
+    function convert(html) {
+      if (!html || !html.trim()) {
+        document.getElementById('markdown-output').value = '';
+        document.getElementById('preview-output').innerHTML = '';
+        updateStats('', 0);
+        updateDroppedAlert([]);
+        return;
+      }
+
+      const calloutStyle = document.getElementById('callout-style').value;
+
+      let markdown = '';
+      try {
+        markdown = preprocessAndConvert(html, calloutStyle);
+      } catch (err) {
+        markdown = '[Error: ' + err.message + ']';
+      }
+      document.getElementById('markdown-output').value = markdown;
+      document.getElementById('preview-output').innerHTML = markdownToHtmlPreview(markdown);
+
+      updateStats(html, calloutCount);
+      updateDroppedAlert(droppedStyles);
+    }
+
+    function updateStats(html, callouts) {
+      const tmp = document.createElement('div');
+      tmp.innerHTML = html;
+      const text = tmp.innerText || tmp.textContent || '';
+      const words = text.trim().split(/\s+/).filter(Boolean).length;
+      const images = tmp.querySelectorAll('img');
+      const tables = tmp.querySelectorAll('table');
+
+      document.getElementById('word-count').textContent = words;
+      document.getElementById('image-count').textContent = images.length;
+      document.getElementById('table-count').textContent = tables.length;
+      document.getElementById('callout-count').textContent = callouts;
+
+      const alert = document.getElementById('image-alert');
+      const list = document.getElementById('image-list');
+      if (images.length > 0) {
+        alert.classList.remove('hidden');
+        list.innerHTML = '';
+        images.forEach((img, i) => {
+          const li = document.createElement('li');
+          li.textContent = `Image ${i + 1}: ${img.alt || '(no alt text)'}`;
+          list.appendChild(li);
+        });
+      } else {
+        alert.classList.add('hidden');
+      }
+    }
+
+    function updateDroppedAlert(drops) {
+      const alert = document.getElementById('dropped-alert');
+      const list = document.getElementById('dropped-list');
+      if (drops.length === 0) {
+        alert.classList.add('hidden');
+        return;
+      }
+      const unique = [...new Set(drops)];
+      alert.classList.remove('hidden');
+      list.innerHTML = '';
+      unique.forEach(d => {
+        const li = document.createElement('li');
+        li.textContent = d;
+        list.appendChild(li);
+      });
+    }
+
+    // ===== Mode switching =====
+    let currentMode = 'paste';
+    function switchMode(mode) {
+      currentMode = mode;
+      document.querySelectorAll('.mode-tab').forEach(t => {
+        t.classList.toggle('active', t.dataset.mode === mode);
+      });
+      document.querySelectorAll('.input-area').forEach(a => a.classList.remove('active'));
+      const labels = { paste: 'Paste from Google Docs', html: 'Paste HTML source' };
+      document.getElementById('input-label').textContent = labels[mode];
+
+      // Show callout controls only on HTML tab
+      document.getElementById('controls').classList.toggle('hidden', mode !== 'html');
+
+      if (mode === 'paste') document.getElementById('paste-area').classList.add('active');
+      else if (mode === 'html') document.getElementById('html-input').classList.add('active');
+      triggerConvert();
+    }
+
+    function triggerConvert() {
+      if (currentMode === 'paste') {
+        convert(document.getElementById('paste-area').innerHTML);
+      } else if (currentMode === 'html') {
+        convert(document.getElementById('html-input').value);
+      }
+    }
+
+    function switchOutput(which) {
+      document.querySelectorAll('.output-tab').forEach(t => {
+        t.classList.toggle('active', t.dataset.output === which);
+      });
+      document.querySelectorAll('.output-area').forEach(a => a.classList.remove('active'));
+      document.getElementById(which + '-output').classList.add('active');
+    }
+
+    function getActiveOutput() {
+      const active = document.querySelector('.output-area.active');
+      return active.tagName === 'TEXTAREA' ? active : null;
+    }
+
+    // ===== Event listeners =====
+    document.getElementById('paste-area').addEventListener('input', triggerConvert);
+    document.getElementById('paste-area').addEventListener('paste', () => setTimeout(triggerConvert, 10));
+    document.getElementById('html-input').addEventListener('input', triggerConvert);
+
+    function clearAll() {
+      document.getElementById('paste-area').innerHTML = '';
+      document.getElementById('html-input').value = '';
+      document.getElementById('markdown-output').value = '';
+      document.getElementById('preview-output').innerHTML = '';
+      updateStats('', 0);
+      updateDroppedAlert([]);
+    }
+
+    function copyOutput() {
+      const out = getActiveOutput();
+      if (!out) return;
+      out.select();
+      document.execCommand('copy');
+      const toast = document.getElementById('toast');
+      toast.classList.add('show');
+      setTimeout(() => toast.classList.remove('show'), 1500);
+    }
+  </script>
+</body>
+</html>
