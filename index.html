@@ -524,6 +524,80 @@
         el.parentNode.replaceChild(placeholder, el);
       });
 
+      // ===== Clean up Google Docs tables =====
+      // Google Docs tables have deeply nested spans, colgroups, and inline
+      // styles that break Turndown's GFM plugin. We convert them to markdown
+      // directly and swap in placeholders.
+      const tableMarkdowns = [];
+      doc.querySelectorAll('table').forEach((table, i) => {
+        const rows = Array.from(table.querySelectorAll('tr'));
+        if (rows.length === 0) return;
+
+        const grid = rows.map(row => {
+          return Array.from(row.querySelectorAll('td, th')).map(cell => {
+            // Get clean text: strip all tags, collapse whitespace
+            let text = (cell.innerText || cell.textContent || '').trim();
+            text = text.replace(/\n+/g, ' ').replace(/\s+/g, ' ');
+            const rawText = text; // keep unescaped copy for bold comparison
+            // Escape pipe characters so they don't break markdown table syntax
+            text = text.replace(/\|/g, '\\|');
+            // Preserve bold — Google Docs uses <span style="font-weight:700">
+            // not <b>/<strong> inside table cells
+            let isCellBold = false;
+            // Check for <b> or <strong> wrapping the whole cell
+            const bTags = cell.querySelectorAll('b, strong');
+            if (bTags.length === 1 && bTags[0].textContent.trim() === rawText) {
+              isCellBold = true;
+            }
+            // Check for Google Docs style: <span style="font-weight: 700">
+            if (!isCellBold) {
+              const spans = cell.querySelectorAll('span');
+              spans.forEach(span => {
+                const style = span.getAttribute('style') || '';
+                if (/font-weight:\s*(700|bold)/i.test(style) && span.textContent.trim() === rawText) {
+                  isCellBold = true;
+                }
+              });
+            }
+            // Check if the cell itself has font-weight
+            if (!isCellBold) {
+              const cellStyle = cell.getAttribute('style') || '';
+              if (/font-weight:\s*(700|bold)/i.test(cellStyle)) {
+                isCellBold = true;
+              }
+            }
+            if (isCellBold && text) {
+              text = '**' + text + '**';
+            }
+            return text;
+          });
+        });
+
+        if (grid.length === 0 || grid[0].length === 0) return;
+
+        // Determine column count from the widest row
+        const colCount = Math.max(...grid.map(r => r.length));
+
+        // Pad rows that have fewer columns
+        grid.forEach(row => {
+          while (row.length < colCount) row.push('');
+        });
+
+        // Build markdown table: first row is header, rest are body
+        let md = '\n\n';
+        md += '| ' + grid[0].join(' | ') + ' |\n';
+        md += '| ' + grid[0].map(() => '---').join(' | ') + ' |\n';
+        for (let r = 1; r < grid.length; r++) {
+          md += '| ' + grid[r].join(' | ') + ' |\n';
+        }
+        md += '\n';
+
+        tableMarkdowns.push(md);
+        const placeholder = doc.createElement('p');
+        placeholder.textContent = `XXXTABLEXXX${i}XXXENDXXX`;
+        table.parentNode.replaceChild(placeholder, table);
+      });
+
       doc.querySelectorAll('div, p, span').forEach(parent => {
         const bolds = Array.from(parent.children).filter(
           c => c.nodeName === 'B' || c.nodeName === 'STRONG'
@@ -543,6 +617,11 @@
         markdown = markdown.replace(placeholder, md);
       });
 
+      tableMarkdowns.forEach((md, i) => {
+        const placeholder = `XXXTABLEXXX${i}XXXENDXXX`;
+        markdown = markdown.replace(placeholder, md);
+      });
+
       markdown = markdown.replace(/\n{3,}/g, '\n\n').trim();
       return markdown;
     }
@@ -558,11 +637,11 @@
         const headerRows = hasHeader ? [rows[0]] : [];
         let tableHtml = '<table>';
         headerRows.forEach(r => {
-          const cells = r.split('|').slice(1, -1).map(c => c.trim());
+          const cells = splitTableRow(r);
           tableHtml += '<tr>' + cells.map(c => `<th>${inlineMd(c)}</th>`).join('') + '</tr>';
         });
         dataRows.forEach(r => {
-          const cells = r.split('|').slice(1, -1).map(c => c.trim());
+          const cells = splitTableRow(r);
           tableHtml += '<tr>' + cells.map(c => `<td>${inlineMd(c)}</td>`).join('') + '</tr>';
         });
         tableHtml += '</table>';
@@ -588,6 +667,13 @@
         .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
         .replace(/_(.+?)_/g, '<em>$1</em>')
         .replace(/\[(.+?)\]\((.+?)\)/g, '<a href="$2">$1</a>');
+    }
+    // Split a markdown table row by | but respect escaped \| inside cells
+    function splitTableRow(row) {
+      return row
+        .replace(/^\|/, '').replace(/\|$/, '')  // strip leading/trailing pipes
+        .split(/(?<!\\)\|/)                      // split on unescaped pipes
+        .map(c => c.trim().replace(/\\\|/g, '|')); // unescape
     }
 
     // ===== Main convert =====
@@ -695,11 +781,6 @@
       document.getElementById(which + '-output').classList.add('active');
     }
 
-    function getActiveOutput() {
-      const active = document.querySelector('.output-area.active');
-      return active.tagName === 'TEXTAREA' ? active : null;
-    }
-
     // ===== Event listeners =====
     document.getElementById('paste-area').addEventListener('input', triggerConvert);
     document.getElementById('paste-area').addEventListener('paste', () => setTimeout(triggerConvert, 10));
@@ -715,10 +796,24 @@
     }
 
     function copyOutput() {
-      const out = getActiveOutput();
-      if (!out) return;
-      out.select();
+      // Always copy the markdown — that's what goes into Strapi
+      const md = document.getElementById('markdown-output').value;
+      if (!md) return;
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(md).then(() => showToast()).catch(() => fallbackCopy());
+      } else {
+        fallbackCopy();
+      }
+    }
+
+    function fallbackCopy() {
+      const el = document.getElementById('markdown-output');
+      el.select();
       document.execCommand('copy');
+      showToast();
+    }
+
+    function showToast() {
       const toast = document.getElementById('toast');
       toast.classList.add('show');
       setTimeout(() => toast.classList.remove('show'), 1500);
